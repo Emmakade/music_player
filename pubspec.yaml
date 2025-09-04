@@ -1,0 +1,39 @@
+name: music_player
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.8.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_bloc: ^9.1.1
+  equatable: ^2.0.7
+  audio_service: ^0.18.18
+  audio_session: ^0.2.2
+  just_audio: ^0.10.4
+  rxdart: ^0.27.7
+  permission_handler: ^12.0.1
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  path_provider: ^2.1.5
+  cached_network_image: ^3.4.1
+  audio_video_progress_bar: ^2.0.3
+  marquee: ^2.3.0
+
+  mediastore_audio:
+    path: ./mediastore_audio
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  build_runner: ^2.4.9
+  #build_verify: ^3.1.1
+  #json_serializable: ^6.10.0
+  hive_generator: ^2.0.1
+
+flutter:
+  uses-material-design: true
