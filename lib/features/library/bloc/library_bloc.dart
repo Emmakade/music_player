@@ -23,10 +23,9 @@ class LibraryBloc extends Bloc<LibraryEvent, LibraryState> {
     CheckPermissionEvent event,
     Emitter<LibraryState> emit,
   ) async {
-    final storage = await Permission.storage.status;
-    final audio = await Permission.audio.status;
+    final storage = await MediastoreAudio.checkPermissions();
 
-    if (storage.isGranted || audio.isGranted) {
+    if (storage) {
       add(LoadLibrary());
     } else {
       emit(LibraryPermissionDenied());
@@ -37,9 +36,8 @@ class LibraryBloc extends Bloc<LibraryEvent, LibraryState> {
     RequestPermissionEvent event,
     Emitter<LibraryState> emit,
   ) async {
-    final storage = await Permission.storage.status;
-    final audio = await Permission.audio.status;
-    if (storage.isGranted || audio.isGranted) {
+    final storage = await MediastoreAudio.requestPermissions();
+    if (storage) {
       add(LoadLibrary());
     } else {
       emit(LibraryPermissionDenied());

@@ -35,6 +35,7 @@ class PlayerLoaded extends PlayerState {
     required super.isPlaying,
     required Track? current,
     required super.queue,
+    super.position,
   }) : super(currentTrack: current);
 }
 

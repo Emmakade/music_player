@@ -52,14 +52,14 @@ class LibraryScreen extends StatelessWidget {
                     title: Text(
                       removeFileExtension(track.title),
                       overflow: TextOverflow.ellipsis,
-                      maxLines: 2,
+                      maxLines: 1,
                     ),
                     subtitle: Text(track.artist),
                     leading: buildTrackArtwork(track.artUri),
                     trailing: Text(formatDuration(track.durationMs)),
                     onTap: () {
-                      context.read<PlayerBloc>().add(PlayTrack(track));
                       context.read<PlayerBloc>().add(UpdateQueue(state.tracks));
+                      context.read<PlayerBloc>().add(PlayTrack(track));
 
                       Navigator.pushNamed(
                         context,

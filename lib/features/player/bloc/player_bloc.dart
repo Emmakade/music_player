@@ -22,6 +22,7 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
   Track? _current;
   List<Track> _libraryTracks = [];
   List<String> _pendingQueueIds = [];
+  Duration _lastPositionUpdate = Duration.zero;
 
   PlayerBloc(this._audioHandler, this._prefsBox, this._stringPrefsBox)
     : super(PlayerInitial()) {
@@ -58,12 +59,15 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
     _queueSub = _audioHandler.queueStream.listen((queue) {
       _queue = queue;
       _saveQueue(queue);
-      add(UpdateQueue(queue));
+      // Don't add UpdateQueue to avoid loop
     });
 
     _positionSub = _audioHandler.positionStream.listen((pos) {
       _savePosition(pos);
-      add(UpdatePlaybackPosition(pos)); // <-- tell Bloc/UI
+      if (pos.inMilliseconds - _lastPositionUpdate.inMilliseconds >= 100) {
+        _lastPositionUpdate = pos;
+        add(UpdatePlaybackPosition(pos)); // <-- tell Bloc/UI
+      }
     });
 
     // Restore from memory
@@ -71,10 +75,26 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
   }
 
   Future<void> _onPlayTrack(PlayTrack event, Emitter<PlayerState> emit) async {
+    // Always ensure the audio handler has the current queue
+    if (_queue.isNotEmpty) {
+      await _audioHandler.setQueue(_queue);
+    } else {
+      // If queue is empty, create a queue with the track
+      _queue = [event.track];
+      await _audioHandler.setQueue(_queue);
+    }
+
     await _audioHandler.playTrack(event.track);
 
     _current = event.track;
-    emit(PlayerLoaded(current: _current, queue: _queue, isPlaying: true));
+    emit(
+      PlayerLoaded(
+        current: _current,
+        queue: _queue,
+        isPlaying: true,
+        position: Duration.zero, // Reset position when starting new track
+      ),
+    );
   }
 
   Future<void> _onPause(PausePlayback event, Emitter<PlayerState> emit) async {
@@ -97,23 +117,24 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
   }
 
   Future<void> _onNext(NextTrack event, Emitter<PlayerState> emit) async {
+    print("Enter Next Track");
     await _audioHandler.skipToNext();
   }
 
   Future<void> _onPrev(PrevTrack event, Emitter<PlayerState> emit) async {
+    print("Enter Prev Track");
     await _audioHandler.skipToPrevious();
   }
 
   Future<void> _onPlayPause(PlayPause event, Emitter<PlayerState> emit) async {
-    final isCurrentlyPlaying =
-        state is PlayerLoaded && (state as PlayerLoaded).isPlaying;
+    final isCurrentlyPlaying = state.isPlaying;
 
     if (isCurrentlyPlaying) {
       await _audioHandler.pause();
-      emit((state as PlayerLoaded).copyWith(isPlaying: false));
+      emit(state.copyWith(isPlaying: false));
     } else {
       await _audioHandler.play();
-      emit((state as PlayerLoaded).copyWith(isPlaying: true));
+      emit(state.copyWith(isPlaying: true));
     }
   }
 
@@ -132,6 +153,8 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
     UpdateQueue event,
     Emitter<PlayerState> emit,
   ) async {
+    _queue = event.queue;
+    await _audioHandler.setQueue(event.queue);
     emit(
       PlayerLoaded(
         current: _current,
@@ -139,6 +162,9 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
         isPlaying: state is PlayerLoaded
             ? (state as PlayerLoaded).isPlaying
             : false,
+        position: state is PlayerLoaded
+            ? (state as PlayerLoaded).position
+            : Duration.zero,
       ),
     );
   }
@@ -165,15 +191,18 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
         isPlaying: state is PlayerLoaded
             ? (state as PlayerLoaded).isPlaying
             : false,
+        position: state is PlayerLoaded
+            ? (state as PlayerLoaded).position
+            : Duration.zero,
       ),
     );
   }
 
   // Persistence
   void _saveCurrentTrack(Track? track) {
-    if (track != null && _prefsBox.isOpen) {
+    if (track != null && _stringPrefsBox.isOpen) {
       try {
-        _prefsBox.put('currentTrack', track);
+        _stringPrefsBox.put('currentTrackId', track.id);
       } catch (e) {
         print('Error saving current track: $e');
       }
@@ -202,13 +231,16 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
   }
 
   void _restoreFromHive() {
-    if (!_prefsBox.isOpen) return;
+    if (!_prefsBox.isOpen || !_stringPrefsBox.isOpen) return;
 
     try {
-      final savedTrack = _prefsBox.get('currentTrack');
-      if (savedTrack != null) {
-        _current = savedTrack;
-        add(UpdateCurrentTrack(savedTrack));
+      final savedTrackId = _stringPrefsBox.get('currentTrackId');
+      if (savedTrackId != null) {
+        final savedTrack = _prefsBox.get(savedTrackId);
+        if (savedTrack != null) {
+          _current = savedTrack;
+          add(UpdateCurrentTrack(savedTrack));
+        }
       }
 
       final queueIds = _stringPrefsBox.get('queueIds', defaultValue: []);
@@ -246,7 +278,14 @@ class PlayerBloc extends Bloc<PlayerEvent, PlayerState> {
     }
 
     if (_current != null) {
-      emit(PlayerLoaded(current: _current!, queue: _queue, isPlaying: false));
+      emit(
+        PlayerLoaded(
+          current: _current!,
+          queue: _queue,
+          isPlaying: true,
+          position: state.position,
+        ),
+      );
     }
   }
 

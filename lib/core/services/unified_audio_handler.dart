@@ -19,6 +19,7 @@ class UnifiedAudioHandler extends BaseAudioHandler
 
   /// Local state
   List<Track> _queueTracks = [];
+  final _isLoading = false;
 
   UnifiedAudioHandler() {
     // Sync player events to audio_service state
@@ -50,7 +51,8 @@ class UnifiedAudioHandler extends BaseAudioHandler
 
   /// Load a queue of tracks (replace existing queue)
   Future<void> loadQueue(List<Track> tracks) async {
-    _queueTracks = tracks;
+    _queue = tracks;
+    _queueTracks = tracks; // Keep them in sync
     final mediaItems = tracks.map((t) => t.toMediaItem()).toList();
 
     // Update queue
@@ -80,7 +82,8 @@ class UnifiedAudioHandler extends BaseAudioHandler
   @override
   Future<void> addQueueItem(MediaItem mediaItem) async {
     final track = Track.fromMediaItem(mediaItem);
-    _queueTracks.add(track);
+    _queue.add(track);
+    _queueTracks.add(track); // Keep them in sync
     final updatedQueue = [...queue.value, mediaItem];
     queue.add(updatedQueue);
 
@@ -93,7 +96,8 @@ class UnifiedAudioHandler extends BaseAudioHandler
   Future<void> removeQueueItem(MediaItem mediaItem) async {
     final index = queue.value.indexWhere((i) => i.id == mediaItem.id);
     if (index != -1) {
-      _queueTracks.removeAt(index);
+      _queue.removeAt(index);
+      _queueTracks.removeAt(index); // Keep them in sync
       final updatedQueue = [...queue.value]..removeAt(index);
       queue.add(updatedQueue);
 
@@ -109,24 +113,66 @@ class UnifiedAudioHandler extends BaseAudioHandler
   // ✅ Manage queue
   Future<void> setQueue(List<Track> tracks) async {
     _queue = tracks;
+    _queueTracks = tracks; // Keep them in sync
     _queueController.add(tracks);
     queue.add(tracks.map(_mapTrackToMediaItem).toList());
 
-    await _player.setAudioSource(
-      ConcatenatingAudioSource(
-        children: tracks
-            .map((t) => AudioSource.uri(Uri.parse(t.path)))
-            .toList(),
-      ),
-    );
+    // Stop current playback to avoid interruption
+    await _player.stop();
+
+    try {
+      await _player.setAudioSource(
+        ConcatenatingAudioSource(
+          children: tracks
+              .map((t) => AudioSource.uri(Uri.parse(t.path)))
+              .toList(),
+        ),
+      );
+    } catch (e) {
+      print('Error setting audio source: $e');
+    }
   }
 
   // ✅ Custom helper for PlayerBloc
   Future<void> playTrack(Track track) async {
-    final index = _queue.indexWhere((t) => t.id == track.id);
-    if (index != -1) {
-      await _player.seek(Duration.zero, index: index);
-      await _player.play();
+    try {
+      final index = _queue.indexWhere((t) => t.id == track.id);
+      if (index != -1) {
+        print('Playing track: ${track.title} at index: $index');
+
+        // Wait for player to be ready to avoid interruption
+        int attempts = 0;
+        while ((_player.processingState == ProcessingState.loading ||
+                _player.processingState == ProcessingState.buffering) &&
+            attempts < 300) {
+          await Future.delayed(Duration(milliseconds: 10));
+          attempts++;
+        }
+
+        // Ensure we seek to the correct position
+        await _player.seek(Duration.zero, index: index);
+
+        // Wait a bit more if still loading
+        attempts = 0;
+        while (_player.processingState == ProcessingState.loading &&
+            attempts < 100) {
+          await Future.delayed(Duration(milliseconds: 10));
+          attempts++;
+        }
+
+        await _player.play();
+
+        // Update current track
+        _current = track;
+        _currentTrackController.add(_current);
+
+        print('Successfully started playing: ${track.title}');
+      } else {
+        print('Track not found in queue: ${track.title}');
+      }
+    } catch (e) {
+      print('Error playing track: $e');
+      // Optionally retry or handle
     }
   }
 
@@ -157,8 +203,10 @@ class UnifiedAudioHandler extends BaseAudioHandler
   @override
   Future<void> skipToPrevious() => _player.seekToPrevious();
 
-  //TODO: Later, in player Bloc or main.dart shutdown, this will be called
-  Future<void> disposeHandler() async {
+  //TODO: Implement close(), in player Bloc or main.dart shutdown, this will be called
+  Future<void> close() async {
+    _currentTrackController.close();
+    _queueController.close();
     await _player.dispose();
   }
 
